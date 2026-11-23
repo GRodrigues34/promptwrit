@@ -112,7 +112,26 @@ def test_template_editor_dialog_saves_updated_children(tmp_path: Path) -> None:
     feature = win.config.tag_map()["FEATURE"]
 
     dlg = TemplateEditorDialog(feature, win.config, parent=win)
-    dlg.editor.setPlainText("<FEATURE>\n  <OBJECTIVE></OBJECTIVE>\n  <OUTPUT></OUTPUT>\n</FEATURE>")
+    dlg.show()
+
+    # Arbitrary prose is blocked on existing tag lines.
+    before = dlg.editor.toPlainText()
+    QTest.keyClicks(dlg.editor, "hello")
+    assert dlg.editor.toPlainText() == before
+
+    # Delete removes the current child tag line (OBJECTIVE).
+    QTest.keyClick(dlg.editor, Qt.Key.Key_Delete)
+    assert "<OBJECTIVE>" not in dlg.editor.toPlainText()
+
+    # Press Enter at end of line to add a new line, type <out and Tab to add OUTPUT.
+    QTest.keyClick(dlg.editor, Qt.Key.Key_Return)
+    QTest.keyClicks(dlg.editor, "<out")
+    assert dlg.is_autocomplete_visible()
+    QTest.keyClick(dlg.editor, Qt.Key.Key_Tab)
+    assert "<OUTPUT>" in dlg.editor.toPlainText()
+
     dlg._save()
-    assert dlg.updated_template == ["OBJECTIVE", "OUTPUT"]
+    assert "OBJECTIVE" not in (dlg.updated_template or [])
+    assert "OUTPUT" in (dlg.updated_template or [])
+    dlg.close()
     win.close()

@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from promptwrit.highlighter import PromptXmlHighlighter
 from promptwrit.parser import expand_tag_snippet
 from promptwrit.schema import AppConfig, TagDef
 
@@ -154,22 +155,74 @@ class TagEditorDialog(QDialog):
         self.accept()
 
 
+class _TemplateCodeEdit(QPlainTextEdit):
+    """Restricted XML template editor: only allows adding (< autocomplete) or removing child tags."""
+
+    def __init__(self, dialog: TemplateEditorDialog) -> None:
+        super().__init__()
+        self._dlg = dialog
+        self.setObjectName("promptEditor")
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt override)
+        key = event.key()
+        mods = event.modifiers()
+
+        if self._dlg.is_autocomplete_visible():
+            if key == Qt.Key.Key_Down:
+                self._dlg.move_autocomplete(1)
+                return
+            if key == Qt.Key.Key_Up:
+                self._dlg.move_autocomplete(-1)
+                return
+            if key in (Qt.Key.Key_Tab, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._dlg.accept_autocomplete()
+                return
+            if key == Qt.Key.Key_Escape:
+                self._dlg.hide_autocomplete()
+                return
+
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Home, Qt.Key.Key_End):
+            super().keyPressEvent(event)
+            return
+
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not mods:
+            self._dlg.insert_blank_child_line()
+            return
+
+        if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
+            self._dlg.handle_delete_key(is_backspace=(key == Qt.Key.Key_Backspace))
+            return
+
+        ch = event.text()
+        if ch and not (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)):
+            if ch == "<" or (self._dlg.is_typing_tag_prefix() and re.fullmatch(r"[A-Za-z0-9_-]", ch)):
+                self._dlg.insert_tag_filter_char(ch)
+            return
+
+        if key == Qt.Key.Key_Escape:
+            self._dlg.reject()
+
+
 class TemplateEditorDialog(QDialog):
-    """Modal to view and edit the expanded XML template for a tag."""
+    """Modal to view and edit child tags of a template using `<` autocomplete only."""
 
     def __init__(self, tag: TagDef, config: AppConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.tag = tag
+        self.config = config
         self.setWindowTitle(f"Edit Template: <{tag.name}>")
-        self.setMinimumSize(620, 340)
+        self.setMinimumSize(640, 360)
         self.updated_template: list[str] | None = None
+        self._suppress = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
         layout.addWidget(
-            QLabel(f"Edit child tags inside <{tag.name}>...</{tag.name}> (one child tag per line):")
+            QLabel(
+                f"Type '<' inside <{tag.name}> to add a tag, Enter for a new line, or Backspace/Delete to remove a tag:"
+            )
         )
 
         temp_cfg = AppConfig(
@@ -179,8 +232,10 @@ class TemplateEditorDialog(QDialog):
         )
         preview_text, _ = expand_tag_snippet(tag, temp_cfg)
 
-        self.editor = QPlainTextEdit(preview_text)
-        self.editor.setObjectName("promptEditor")
+        self.editor = _TemplateCodeEdit(self)
+        hints = {t.description for t in config.tags if t.description}
+        self.highlighter = PromptXmlHighlighter(self.editor.document(), known_hints=hints)
+        self.editor.setPlainText(preview_text)
         layout.addWidget(self.editor, 1)
 
         actions = QHBoxLayout()
@@ -194,26 +249,180 @@ class TemplateEditorDialog(QDialog):
         actions.addWidget(save_btn)
         layout.addLayout(actions)
 
-    def _save(self) -> None:
-        raw = self.editor.toPlainText().strip()
+        self.popup = QListWidget(self)
+        self.popup.setObjectName("autocompletePopup")
+        self.popup.setWindowFlags(Qt.WindowType.SubWindow)
+        self.popup.hide()
+        self.popup.itemClicked.connect(lambda _item: self.accept_autocomplete())
+
+        # Start cursor on the first child line.
+        cur = self.editor.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.Start)
+        cur.movePosition(QTextCursor.MoveOperation.Down)
+        self.editor.setTextCursor(cur)
+
+    def _line_bounds(self) -> tuple[int, int, int]:
+        """Return (block_index, total_blocks, line_start_pos) for current cursor."""
+        cur = self.editor.textCursor()
+        block = cur.block()
+        return block.blockNumber(), self.editor.document().blockCount(), block.position()
+
+    def is_typing_tag_prefix(self) -> bool:
+        cur = self.editor.textCursor()
+        block = cur.block()
+        idx = cur.blockNumber()
+        total = self.editor.document().blockCount()
+        if idx == 0 or idx >= total - 1:
+            return False
+        before = block.text()[: cur.positionInBlock()]
+        return bool(re.search(r"^\s*<[A-Za-z0-9_-]*$", before))
+
+    def is_autocomplete_visible(self) -> bool:
+        return self.popup.isVisible()
+
+    def hide_autocomplete(self) -> None:
+        self.popup.hide()
+        self.popup.clear()
+
+    def move_autocomplete(self, delta: int) -> None:
+        count = self.popup.count()
+        if count == 0:
+            return
+        row = self.popup.currentRow()
+        self.popup.setCurrentRow((row + delta) % count if row >= 0 else 0)
+
+    def _current_children(self) -> list[str]:
+        raw = self.editor.toPlainText()
         outer = re.match(
             rf"^<{re.escape(self.tag.name)}>\s*(.*?)\s*</{re.escape(self.tag.name)}>$",
-            raw,
+            raw.strip(),
             re.DOTALL | re.IGNORECASE,
         )
         body = outer.group(1) if outer else raw
-        children = [
+        return [
             m.group(1).upper()
-            for m in re.finditer(r"<\s*([A-Za-z_][A-Za-z0-9_-]*)\s*>", body)
+            for m in re.finditer(r"^\s*<\s*([A-Za-z_][A-Za-z0-9_-]*)\s*>", body, re.MULTILINE)
+            if m.group(1).upper() != self.tag.name
         ]
-        # Deduplicate while preserving order, excluding the wrapper tag itself.
+
+    def _position_popup(self) -> None:
+        rect = self.editor.cursorRect()
+        pt = self.editor.mapTo(self, rect.bottomLeft() + QPoint(0, 4))
+        popup_w = min(480, max(320, self.width() - 48))
+        popup_h = min(190, 28 * max(1, self.popup.count()) + 10)
+        x = min(pt.x(), max(16, self.width() - popup_w - 16))
+        y = pt.y()
+        if y + popup_h > self.height() - 40:
+            y = max(16, self.editor.mapTo(self, rect.topLeft() - QPoint(0, popup_h + 4)).y())
+        self.popup.setGeometry(x, y, popup_w, popup_h)
+        self.popup.raise_()
+
+    def _refresh_popup(self, query: str) -> None:
+        existing = set(self._current_children())
+        q = query.upper()
+        candidates = [
+            t
+            for t in self.config.complementary_tags()
+            if t.name not in existing and (not q or t.name.startswith(q))
+        ]
+        self.popup.clear()
+        if not candidates:
+            self.hide_autocomplete()
+            return
+        for tag in candidates:
+            item = QListWidgetItem(f"{tag.name:<13} | {tag.description}")
+            item.setData(Qt.ItemDataRole.UserRole, tag)
+            self.popup.addItem(item)
+        self.popup.setCurrentRow(0)
+        self._position_popup()
+        self.popup.show()
+
+    def insert_tag_filter_char(self, ch: str) -> None:
+        idx, total, _ = self._line_bounds()
+        if idx == 0 or idx >= total - 1:
+            return
+        cur = self.editor.textCursor()
+        line_text = cur.block().text()
+        if ch == "<":
+            if line_text.strip() != "":
+                return
+            indent = " " * max(1, self.config.indent_spaces)
+            cur.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            cur.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+            cur.insertText(f"{indent}<")
+            self.editor.setTextCursor(cur)
+            self._refresh_popup("")
+            return
+
+        cur.insertText(ch)
+        self.editor.setTextCursor(cur)
+        before = cur.block().text()[: cur.positionInBlock()]
+        m = re.search(r"<([A-Za-z0-9_-]*)$", before)
+        if m:
+            self._refresh_popup(m.group(1))
+
+    def accept_autocomplete(self) -> None:
+        item = self.popup.currentItem()
+        if item is None:
+            self.hide_autocomplete()
+            return
+        tag_def: TagDef = item.data(Qt.ItemDataRole.UserRole)
+        self.hide_autocomplete()
+        indent = " " * max(1, self.config.indent_spaces)
+        cur = self.editor.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        cur.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        cur.insertText(f"{indent}<{tag_def.name}>{tag_def.description}</{tag_def.name}>")
+        self.editor.setTextCursor(cur)
+
+    def insert_blank_child_line(self) -> None:
+        idx, total, _ = self._line_bounds()
+        if idx >= total - 1:
+            return
+        cur = self.editor.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        indent = " " * max(1, self.config.indent_spaces)
+        cur.insertText(f"\n{indent}")
+        self.editor.setTextCursor(cur)
+
+    def handle_delete_key(self, is_backspace: bool) -> None:
+        idx, total, _ = self._line_bounds()
+        if idx == 0 or idx >= total - 1:
+            return
+        cur = self.editor.textCursor()
+        line_text = cur.block().text()
+        # If typing `<prefix`, allow deleting characters of the prefix.
+        if is_backspace and re.fullmatch(r"\s*<[A-Za-z0-9_-]+", line_text):
+            cur.deletePreviousChar()
+            self.editor.setTextCursor(cur)
+            m = re.search(r"<([A-Za-z0-9_-]*)$", cur.block().text())
+            self._refresh_popup(m.group(1) if m else "")
+            return
+        if is_backspace and re.fullmatch(r"\s*<", line_text):
+            self.hide_autocomplete()
+            cur.deletePreviousChar()
+            self.editor.setTextCursor(cur)
+            return
+
+        # Otherwise remove the entire child tag line cleanly.
+        self.hide_autocomplete()
+        lines = self.editor.toPlainText().splitlines()
+        if 0 < idx < len(lines) - 1:
+            del lines[idx]
+            self.editor.setPlainText("\n".join(lines))
+            new_cur = self.editor.textCursor()
+            new_cur.movePosition(QTextCursor.MoveOperation.Start)
+            for _ in range(min(idx, len(lines) - 1)):
+                new_cur.movePosition(QTextCursor.MoveOperation.Down)
+            self.editor.setTextCursor(new_cur)
+
+    def _save(self) -> None:
         seen: set[str] = set()
         cleaned: list[str] = []
-        for child in children:
-            if child != self.tag.name and child not in seen:
+        for child in self._current_children():
+            if child not in seen:
                 seen.add(child)
                 cleaned.append(child)
-
         self.updated_template = cleaned
         self.accept()
 
