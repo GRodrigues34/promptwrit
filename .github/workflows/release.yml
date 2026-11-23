@@ -22,7 +22,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install PySide6 pyperclip pyinstaller
-          pyinstaller --onefile --windowed --name promptwrit \
+          pyinstaller --noconfirm --onedir --windowed --name promptwrit \
             --paths src \
             --add-data "src/promptwrit/assets/check.svg:promptwrit/assets" \
             src/promptwrit/__main__.py
@@ -30,8 +30,8 @@ jobs:
       - name: Package Linux release archive
         run: |
           mkdir -p release_pkg
-          cp dist/promptwrit install.sh uninstall.sh README.md release_pkg/
-          chmod +x release_pkg/promptwrit release_pkg/install.sh release_pkg/uninstall.sh
+          cp -a dist/promptwrit install.sh uninstall.sh README.md release_pkg/
+          chmod +x release_pkg/promptwrit/promptwrit release_pkg/install.sh release_pkg/uninstall.sh
           tar -czf promptwrit-linux-x86_64.tar.gz -C release_pkg .
 
       - name: Upload to GitHub Release

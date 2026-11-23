@@ -3,20 +3,34 @@ set -euo pipefail
 
 APP_NAME="PromptWrit"
 BIN_NAME="promptwrit"
-INSTALL_DIR="${HOME}/.local/bin"
+INSTALL_BIN="${HOME}/.local/bin/${BIN_NAME}"
+INSTALL_APP_DIR="${HOME}/.local/share/${BIN_NAME}"
 DESKTOP_DIR="${HOME}/.local/share/applications"
+AUTOSTART_DIR="${HOME}/.config/autostart"
 CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/${BIN_NAME}"
 
 echo "==> Uninstalling ${APP_NAME}..."
 
-if [[ -f "${INSTALL_DIR}/${BIN_NAME}" ]]; then
-  rm -f "${INSTALL_DIR}/${BIN_NAME}"
-  echo "    Removed ${INSTALL_DIR}/${BIN_NAME}"
+pkill -f "${INSTALL_APP_DIR}/${BIN_NAME}" >/dev/null 2>&1 || true
+
+if [[ -L "${INSTALL_BIN}" || -f "${INSTALL_BIN}" ]]; then
+  rm -f "${INSTALL_BIN}"
+  echo "    Removed ${INSTALL_BIN}"
+fi
+
+if [[ -d "${INSTALL_APP_DIR}" ]]; then
+  rm -rf "${INSTALL_APP_DIR}"
+  echo "    Removed ${INSTALL_APP_DIR}"
 fi
 
 if [[ -f "${DESKTOP_DIR}/${BIN_NAME}.desktop" ]]; then
   rm -f "${DESKTOP_DIR}/${BIN_NAME}.desktop"
   echo "    Removed ${DESKTOP_DIR}/${BIN_NAME}.desktop"
+fi
+
+if [[ -f "${AUTOSTART_DIR}/${BIN_NAME}.desktop" ]]; then
+  rm -f "${AUTOSTART_DIR}/${BIN_NAME}.desktop"
+  echo "    Removed ${AUTOSTART_DIR}/${BIN_NAME}.desktop"
 fi
 
 if command -v gsettings >/dev/null 2>&1; then

@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
-from PySide6.QtGui import QKeyEvent, QTextCursor
+from PySide6.QtGui import QCloseEvent, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
+    QApplication,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -87,7 +88,11 @@ class PromptEditor(QPlainTextEdit):
                 return
 
         if key == Qt.Key.Key_Escape:
-            self._window.close()
+            self._window.dismiss_window()
+            return
+
+        if key == Qt.Key.Key_Q and (mods & Qt.KeyboardModifier.ControlModifier):
+            QApplication.quit()
             return
 
         # Non-editable ghost hint handling
@@ -112,9 +117,15 @@ class PromptEditor(QPlainTextEdit):
 class PromptWritWindow(QMainWindow):
     """Independent modern dark-slate desktop window for PromptWrit."""
 
-    def __init__(self, cli_cwd: str | None = None, config_file: Path | None = None) -> None:
+    def __init__(
+        self,
+        cli_cwd: str | None = None,
+        config_file: Path | None = None,
+        daemon_mode: bool = False,
+    ) -> None:
         super().__init__()
         self.config_file = config_file
+        self.daemon_mode = daemon_mode
         self.config: AppConfig = load_config(config_file)
         self.workspace_root = resolve_workspace_root(cli_cwd, self.config)
         self.workspace_files: list[str] = []
@@ -500,11 +511,44 @@ class PromptWritWindow(QMainWindow):
             return
         if copy_to_clipboard(cleaned):
             if self.config.after_copy == "close":
-                self.close()
+                if self.daemon_mode:
+                    self._suppress_change = True
+                    self.editor.clear()
+                    self._suppress_change = False
+                    self._refresh_tags_legend()
+                self.dismiss_window()
             else:
                 self.footer.setText("Copied prompt to clipboard!")
         else:
             self.footer.setText("Clipboard copy failed (wl-copy / xclip unavailable).")
+
+    def dismiss_window(self) -> None:
+        """Hide window in daemon mode, or close normally otherwise."""
+        self.hide_autocomplete()
+        if self.daemon_mode:
+            self.hide()
+        else:
+            self.close()
+
+    def show_from_daemon(self, cli_cwd: str | None = None) -> None:
+        """Bring the existing window to front instantaneously."""
+        if cli_cwd:
+            new_root = resolve_workspace_root(cli_cwd, self.config)
+            if new_root != self.workspace_root:
+                self.workspace_root = new_root
+                self._reindex_workspace()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.editor.setFocus()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
+        if self.daemon_mode:
+            event.ignore()
+            self.hide_autocomplete()
+            self.hide()
+            return
+        super().closeEvent(event)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 (Qt override)
         if watched is self and event.type() == QEvent.Type.Resize and self.popup.isVisible():

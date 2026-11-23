@@ -141,3 +141,19 @@ def test_template_editor_dialog_saves_updated_children(tmp_path: Path) -> None:
     assert "OUTPUT" in (dlg.updated_template or [])
     dlg.close()
     win.close()
+
+
+def test_daemon_mode_hides_and_shows_instantly(tmp_path: Path) -> None:
+    _ensure_qapp()
+    cfg_file = tmp_path / "config.json"
+    win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file, daemon_mode=True)
+    win.show_from_daemon()
+    assert win.isVisible() is True
+
+    win.dismiss_window()
+    assert win.isVisible() is False
+
+    win.show_from_daemon()
+    assert win.isVisible() is True
+    win.daemon_mode = False
+    win.close()
