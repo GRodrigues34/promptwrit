@@ -139,7 +139,7 @@ def default_tags() -> list[TagDef]:
             name="PROMPT",
             kind="main",
             plural="PROMPTS",
-            description="Freeform prompt block (write anything, #file paths, or Complementary tags)",
+            description="Freeform prompt block",
             template=[],
         ),
         # Complementary tags
@@ -181,7 +181,7 @@ def default_tags() -> list[TagDef]:
         TagDef(
             name="OUTPUT",
             kind="complementary",
-            description="Desired response format (e.g., plan only, diff only, no code edits)",
+            description="Desired response format",
         ),
     ]
 

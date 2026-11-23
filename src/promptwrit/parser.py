@@ -40,11 +40,17 @@ def allowed_tags_for_context(stack: list[str], config: AppConfig) -> list[TagDef
     """Return tags permitted at the current nesting depth.
 
     Root (empty stack) allows Main and Complementary tags.
-    Inside any open tag (non-empty stack) allows Complementary tags only.
+    Inside a plural wrapper (e.g. PROMPTS) allows its matching Main tag + Complementary tags.
+    Inside any other open tag allows Complementary tags only.
     """
     if not stack:
         return list(config.tags)
-    return config.complementary_tags()
+
+    top = stack[-1]
+    matching_main = [
+        t for t in config.main_tags() if t.plural == top and t.plural != t.name
+    ]
+    return matching_main + config.complementary_tags()
 
 
 def extract_active_tags(text: str, config: AppConfig) -> list[tuple[str, str]]:

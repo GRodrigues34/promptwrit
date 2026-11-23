@@ -92,9 +92,10 @@ class TagEditorDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(18, 18, 18, 18)
 
-        layout.addWidget(QLabel("Tag Name (uppercase):"))
+        layout.addWidget(QLabel("Tag Name:"))
         self.name_input = QLineEdit(existing.name if existing else "")
         self.name_input.setPlaceholderText("e.g. PERF")
+        self.name_input.textEdited.connect(lambda _t: self._force_upper(self.name_input))
         layout.addWidget(self.name_input)
 
         layout.addWidget(QLabel("Kind:"))
@@ -103,11 +104,14 @@ class TagEditorDialog(QDialog):
         self.kind_combo.addItem("Main (root wrapper, auto-pluralizes)", "main")
         if existing and existing.kind == "main":
             self.kind_combo.setCurrentIndex(1)
+        self.kind_combo.currentIndexChanged.connect(self._sync_plural_visibility)
         layout.addWidget(self.kind_combo)
 
-        layout.addWidget(QLabel("Plural Name (Main tags only):"))
+        self.plural_label = QLabel("Plural Name:")
         self.plural_input = QLineEdit(existing.plural if existing else "")
         self.plural_input.setPlaceholderText("e.g. PERFS")
+        self.plural_input.textEdited.connect(lambda _t: self._force_upper(self.plural_input))
+        layout.addWidget(self.plural_label)
         layout.addWidget(self.plural_input)
 
         layout.addWidget(QLabel("Description / Canonical Ghost Hint:"))
@@ -115,10 +119,13 @@ class TagEditorDialog(QDialog):
         self.desc_input.setPlaceholderText("Short guidance shown in -- Tags: and placeholder")
         layout.addWidget(self.desc_input)
 
-        layout.addWidget(QLabel("Template Child Tags (comma-separated, optional):"))
+        layout.addWidget(QLabel("Child Tags:"))
         self.tmpl_input = QLineEdit(", ".join(existing.template) if existing else "")
         self.tmpl_input.setPlaceholderText("OBJECTIVE, CONTEXT, CONSTRAINTS")
+        self.tmpl_input.textEdited.connect(lambda _t: self._force_upper(self.tmpl_input))
         layout.addWidget(self.tmpl_input)
+
+        self._sync_plural_visibility()
 
         actions = QHBoxLayout()
         actions.addStretch(1)
@@ -131,11 +138,24 @@ class TagEditorDialog(QDialog):
         actions.addWidget(save_btn)
         layout.addLayout(actions)
 
+    def _sync_plural_visibility(self) -> None:
+        is_main = self.kind_combo.currentData() == "main"
+        self.plural_label.setVisible(is_main)
+        self.plural_input.setVisible(is_main)
+
+    @staticmethod
+    def _force_upper(field: QLineEdit) -> None:
+        pos = field.cursorPosition()
+        upper = field.text().upper()
+        if field.text() != upper:
+            field.setText(upper)
+            field.setCursorPosition(pos)
+
     def _save(self) -> None:
         name = self.name_input.text().strip().upper()
         desc = self.desc_input.text().strip()
         kind = self.kind_combo.currentData()
-        plural = self.plural_input.text().strip().upper()
+        plural = self.plural_input.text().strip().upper() if kind == "main" else ""
         tmpl = [p.strip().upper() for p in self.tmpl_input.text().split(",") if p.strip()]
 
         if not name or not re.fullmatch(r"[A-Z_][A-Z0-9_-]*", name):
@@ -427,6 +447,56 @@ class TemplateEditorDialog(QDialog):
         self.accept()
 
 
+class AddTemplateDialog(QDialog):
+    """Modal to assign child tags as a template to any existing tag."""
+
+    def __init__(self, tags: list[TagDef], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Add Template")
+        self.setMinimumWidth(440)
+        self.selected_tag_name: str | None = None
+        self.child_tags: list[str] = []
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        layout.addWidget(QLabel("Tag:"))
+        self.tag_combo = QComboBox()
+        ordered = sorted(tags, key=lambda t: (bool(t.template), t.name))
+        for t in ordered:
+            self.tag_combo.addItem(t.name, t.name)
+        layout.addWidget(self.tag_combo)
+
+        layout.addWidget(QLabel("Child Tags:"))
+        self.children_input = QLineEdit()
+        self.children_input.setPlaceholderText("OBJECTIVE, CONTEXT, CONSTRAINTS")
+        self.children_input.textEdited.connect(
+            lambda _t: TagEditorDialog._force_upper(self.children_input)
+        )
+        layout.addWidget(self.children_input)
+
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        save_btn = QPushButton("Save Template")
+        save_btn.setObjectName("primaryBtn")
+        save_btn.clicked.connect(self._save)
+        actions.addWidget(cancel_btn)
+        actions.addWidget(save_btn)
+        layout.addLayout(actions)
+
+    def _save(self) -> None:
+        children = [c.strip().upper() for c in self.children_input.text().split(",") if c.strip()]
+        if not children:
+            QMessageBox.warning(self, "Missing Child Tags", "Enter at least one child tag.")
+            return
+        self.selected_tag_name = self.tag_combo.currentData()
+        self.child_tags = children
+        self.accept()
+
+
 class SettingsDialog(QDialog):
     """Settings modal for Templates toggle, indexing, copy behavior, and tag management."""
 
@@ -542,7 +612,15 @@ class SettingsDialog(QDialog):
         self.tmpl_layout.setContentsMargins(4, 4, 4, 4)
         self.tmpl_layout.setSpacing(6)
         scroll.setWidget(self.tmpl_container)
-        tmpl_outer.addWidget(scroll)
+        tmpl_outer.addWidget(scroll, 1)
+
+        tmpl_btns = QHBoxLayout()
+        add_tmpl_btn = QPushButton("+ Add Template")
+        add_tmpl_btn.clicked.connect(self._add_template)
+        tmpl_btns.addWidget(add_tmpl_btn)
+        tmpl_btns.addStretch(1)
+        tmpl_outer.addLayout(tmpl_btns)
+
         self.tabs.addTab(tmpl_tab, "Templates")
 
         actions = QHBoxLayout()
@@ -593,6 +671,14 @@ class SettingsDialog(QDialog):
             row.addWidget(eye_btn)
             self.tmpl_layout.addWidget(row_widget)
         self.tmpl_layout.addStretch(1)
+
+    def _add_template(self) -> None:
+        dlg = AddTemplateDialog(self.draft.tags, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_tag_name:
+            target = self.draft.tag_map().get(dlg.selected_tag_name)
+            if target is not None:
+                target.template = dlg.child_tags
+                self._refresh_tag_list()
 
     def _preview_template(self, tag: TagDef) -> None:
         dlg = TemplateEditorDialog(tag, self.draft, parent=self)

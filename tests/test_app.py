@@ -102,6 +102,12 @@ def test_ghost_hint_is_non_editable_and_restores_when_empty(tmp_path: Path) -> N
         QTest.keyClick(win.editor, Qt.Key.Key_Backspace)
     QTest.keyClick(win.editor, Qt.Key.Key_Tab)
     assert "<OBJECTIVE>Exact outcome or goal expected</OBJECTIVE>" in win.editor.toPlainText()
+
+    # Tabbing from the last tag wraps back to the first complementary tag without inserting tabs.
+    for _ in range(4):
+        QTest.keyClick(win.editor, Qt.Key.Key_Tab)
+    pos = win.editor.textCursor().position()
+    assert win.editor.toPlainText()[pos:].startswith("Exact outcome or goal expected")
     win.close()
 
 

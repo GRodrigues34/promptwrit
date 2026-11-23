@@ -26,6 +26,11 @@ def test_context_scoping_root_vs_nested() -> None:
     assert "FEATURE" in allowed_root
     assert "OBJECTIVE" in allowed_root
 
+    allowed_in_prompts = {t.name for t in allowed_tags_for_context(["PROMPTS"], cfg)}
+    assert "PROMPT" in allowed_in_prompts
+    assert "FEATURE" not in allowed_in_prompts
+    assert "OBJECTIVE" in allowed_in_prompts
+
 
 def test_extract_active_tags_skips_plurals_and_marks_custom() -> None:
     cfg = default_config()

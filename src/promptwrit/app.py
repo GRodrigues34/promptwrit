@@ -82,6 +82,10 @@ class PromptEditor(QPlainTextEdit):
             if self._window.jump_next_tab_stop():
                 return
 
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not mods:
+            if self._window.handle_auto_indent_enter():
+                return
+
         if key == Qt.Key.Key_Escape:
             self._window.close()
             return
@@ -317,10 +321,17 @@ class PromptWritWindow(QMainWindow):
 
         if kind == "tag" and isinstance(payload, TagDef):
             line_start = text.rfind("\n", 0, trigger.start_index) + 1
-            col = trigger.start_index - line_start
-            snippet, stops = expand_tag_snippet(payload, self.config, base_indent=" " * col)
+            stack = get_tag_stack_at_cursor(text, trigger.start_index)
+            expected_indent = " " * (len(stack) * max(1, self.config.indent_spaces))
+            leading = text[line_start : trigger.start_index]
+            replace_start = line_start if leading.strip() == "" else trigger.start_index
+            base_indent = expected_indent if leading.strip() == "" else " " * (trigger.start_index - line_start)
 
-            new_text = text[: trigger.start_index] + snippet + text[trigger.end_index :]
+            snippet, stops = expand_tag_snippet(payload, self.config, base_indent=base_indent)
+            if leading.strip() == "":
+                snippet = f"{expected_indent}{snippet}"
+
+            new_text = text[:replace_start] + snippet + text[trigger.end_index :]
             pluralized = apply_auto_pluralization(new_text, self.config)
 
             self._suppress_change = True
@@ -329,11 +340,26 @@ class PromptWritWindow(QMainWindow):
 
             if stops and stops[0].hint:
                 hint = stops[0].hint
-                idx = pluralized.find(hint, trigger.start_index)
+                idx = pluralized.find(hint, replace_start)
                 if idx != -1:
                     self._set_cursor_pos(idx)
 
             self._refresh_tags_legend()
+
+    def handle_auto_indent_enter(self) -> bool:
+        """Insert a newline preserving indentation (and indenting inside open tags)."""
+        if self.ghost_hint_at_cursor() is not None:
+            return False
+        text = self.editor.toPlainText()
+        pos = self.editor.textCursor().position()
+        line_start = text.rfind("\n", 0, pos) + 1
+        line_before = text[line_start:pos]
+        leading = re.match(r"^[ \t]*", line_before).group(0)
+        indent_unit = " " * max(1, self.config.indent_spaces)
+        if re.search(r"<[A-Za-z_][A-Za-z0-9_-]*>\s*$", line_before):
+            leading += indent_unit
+        self.editor.insertPlainText(f"\n{leading}")
+        return True
 
     def _set_cursor_pos(self, pos: int) -> None:
         cursor = self.editor.textCursor()
@@ -400,25 +426,41 @@ class PromptWritWindow(QMainWindow):
                 self._suppress_change = False
                 break
 
-    def jump_next_tab_stop(self) -> bool:
-        """Jump cursor to the start of the next canonical ghost hint after the cursor."""
-        text = self.editor.toPlainText()
-        cursor = self.editor.textCursor()
-        search_from = cursor.position() + 1
-
+    def _find_next_hint_pos(self, text: str, start_from: int) -> int | None:
         best_pos: int | None = None
         for tag in self.config.tags:
             if not tag.description:
                 continue
             token = f">{tag.description}</"
-            found = text.find(token, search_from)
+            found = text.find(token, start_from)
             if found != -1:
                 pos = found + 1
                 if best_pos is None or pos < best_pos:
                     best_pos = pos
+        return best_pos
 
-        if best_pos is not None:
-            self._set_cursor_pos(best_pos)
+    def _find_first_complementary_pos(self, text: str) -> int | None:
+        comp_names = {t.name for t in self.config.complementary_tags()}
+        best_pos: int | None = None
+        for match in re.finditer(r"<([A-Za-z_][A-Za-z0-9_-]*)>", text):
+            if match.group(1).upper() in comp_names:
+                pos = match.end()
+                if best_pos is None or pos < best_pos:
+                    best_pos = pos
+        return best_pos
+
+    def jump_next_tab_stop(self) -> bool:
+        """Jump cursor to the next ghost hint, wrapping to the first complementary tag."""
+        text = self.editor.toPlainText()
+        cursor = self.editor.textCursor()
+        next_pos = self._find_next_hint_pos(text, cursor.position() + 1)
+        if next_pos is None:
+            next_pos = self._find_next_hint_pos(text, 0)
+        if next_pos is None:
+            next_pos = self._find_first_complementary_pos(text)
+
+        if next_pos is not None:
+            self._set_cursor_pos(next_pos)
             return True
         return False
 
