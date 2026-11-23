@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -79,10 +80,62 @@ class WorkspaceDialog(QDialog):
             QMessageBox.warning(self, "Invalid Directory", "The selected directory does not exist.")
 
 
+def _attach_tag_completer(field: QLineEdit, tag_names: list[str]) -> QCompleter:
+    """Attach comma-separated tag autocomplete to a QLineEdit."""
+    completer = QCompleter(sorted(set(tag_names)), field)
+    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+    completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+    completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+    completer.setWidget(field)
+
+    def _on_edited(text: str) -> None:
+        token = text.rpartition(",")[2].strip().upper()
+        completer.setCompletionPrefix(token)
+        if token:
+            completer.complete()
+        else:
+            completer.popup().hide()
+
+    def _on_activated(chosen: str) -> None:
+        head, sep, _ = field.text().rpartition(",")
+        new_text = f"{head}, {chosen}, " if sep else f"{chosen}, "
+        field.setText(new_text)
+        field.setCursorPosition(len(new_text))
+        completer.popup().hide()
+
+    class _TabAcceptFilter(QObject):
+        def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+            if event.type() == QEvent.Type.KeyPress and completer.popup().isVisible():
+                key_ev = event  # type: ignore[assignment]
+                if isinstance(key_ev, QKeyEvent) and key_ev.key() in (
+                    Qt.Key.Key_Tab,
+                    Qt.Key.Key_Return,
+                    Qt.Key.Key_Enter,
+                ):
+                    idx = completer.popup().currentIndex()
+                    chosen = idx.data() if idx.isValid() else completer.currentCompletion()
+                    if chosen:
+                        _on_activated(str(chosen))
+                    return True
+            return False
+
+    tab_filter = _TabAcceptFilter(field)
+    field.installEventFilter(tab_filter)
+    completer.popup().installEventFilter(tab_filter)
+    field.textEdited.connect(_on_edited)
+    completer.activated.connect(_on_activated)
+    return completer
+
+
 class TagEditorDialog(QDialog):
     """Dialog to create or edit a Main or Complementary tag and its template."""
 
-    def __init__(self, existing: TagDef | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        existing: TagDef | None = None,
+        available_tags: list[str] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Edit Tag" if existing else "New Tag")
         self.setMinimumWidth(480)
@@ -123,6 +176,8 @@ class TagEditorDialog(QDialog):
         self.tmpl_input = QLineEdit(", ".join(existing.template) if existing else "")
         self.tmpl_input.setPlaceholderText("OBJECTIVE, CONTEXT, CONSTRAINTS")
         self.tmpl_input.textEdited.connect(lambda _t: self._force_upper(self.tmpl_input))
+        if available_tags:
+            self._tmpl_completer = _attach_tag_completer(self.tmpl_input, available_tags)
         layout.addWidget(self.tmpl_input)
 
         self._sync_plural_visibility()
@@ -474,6 +529,9 @@ class AddTemplateDialog(QDialog):
         self.children_input.textEdited.connect(
             lambda _t: TagEditorDialog._force_upper(self.children_input)
         )
+        self._children_completer = _attach_tag_completer(
+            self.children_input, [t.name for t in tags]
+        )
         layout.addWidget(self.children_input)
 
         actions = QHBoxLayout()
@@ -694,7 +752,10 @@ class SettingsDialog(QDialog):
         return None
 
     def _new_tag(self) -> None:
-        dlg = TagEditorDialog(parent=self)
+        dlg = TagEditorDialog(
+            available_tags=[t.name for t in self.draft.complementary_tags()],
+            parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_tag:
             self.draft.tags = [t for t in self.draft.tags if t.name != dlg.result_tag.name]
             self.draft.tags.append(dlg.result_tag)
@@ -707,7 +768,11 @@ class SettingsDialog(QDialog):
         existing = self.draft.tag_map().get(name)
         if not existing:
             return
-        dlg = TagEditorDialog(existing=existing, parent=self)
+        dlg = TagEditorDialog(
+            existing=existing,
+            available_tags=[t.name for t in self.draft.complementary_tags()],
+            parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_tag:
             self.draft.tags = [
                 dlg.result_tag if t.name == existing.name else t for t in self.draft.tags
