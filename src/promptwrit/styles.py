@@ -214,4 +214,24 @@ QLabel#sectionHeader {
     padding: 4px 2px;
     background: transparent;
 }
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 8px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical {
+    background: #2e3847;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #4c617d;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
 """.replace("__CHECK_SVG__", _CHECK_SVG)

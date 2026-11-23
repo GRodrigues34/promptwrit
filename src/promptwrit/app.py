@@ -153,7 +153,7 @@ class PromptWritWindow(QMainWindow):
         self.tags_legend = QPlainTextEdit()
         self.tags_legend.setObjectName("tagsLegend")
         self.tags_legend.setReadOnly(True)
-        self.tags_legend.setMaximumHeight(110)
+        self.tags_legend.setMaximumHeight(140)
         self.tags_legend.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         tags_layout.addWidget(self.tags_legend)
         root_layout.addWidget(tags_group)
@@ -210,6 +210,8 @@ class PromptWritWindow(QMainWindow):
             self.tags_legend.setPlainText("")
             return
         self.tags_legend.setPlainText("\n".join(f"{name}: {desc}" for name, desc in active))
+        bar = self.tags_legend.verticalScrollBar()
+        bar.setValue(bar.maximum())
 
     def is_autocomplete_visible(self) -> bool:
         return self.popup.isVisible()
