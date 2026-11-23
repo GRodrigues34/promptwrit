@@ -8,23 +8,25 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from promptwrit.parser import expand_tag_snippet
 from promptwrit.schema import AppConfig, TagDef
 
 
@@ -152,13 +154,46 @@ class TagEditorDialog(QDialog):
         self.accept()
 
 
+class TemplatePreviewDialog(QDialog):
+    """Read-only modal showing the full expanded XML template for a tag."""
+
+    def __init__(self, tag: TagDef, config: AppConfig, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Template Preview: <{tag.name}>")
+        self.setMinimumSize(480, 280)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        temp_cfg = AppConfig(
+            templates_enabled=True,
+            indent_spaces=config.indent_spaces,
+            tags=config.tags,
+        )
+        preview_text, _ = expand_tag_snippet(tag, temp_cfg)
+
+        viewer = QPlainTextEdit(preview_text)
+        viewer.setReadOnly(True)
+        viewer.setObjectName("promptEditor")
+        layout.addWidget(viewer, 1)
+
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("primaryBtn")
+        close_btn.clicked.connect(self.accept)
+        actions.addWidget(close_btn)
+        layout.addLayout(actions)
+
+
 class SettingsDialog(QDialog):
     """Settings modal for Templates toggle, indexing, copy behavior, and tag management."""
 
     def __init__(self, config: AppConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("PromptWrit Settings")
-        self.setMinimumSize(620, 520)
+        self.setMinimumSize(640, 560)
 
         self.draft = AppConfig(
             templates_enabled=config.templates_enabled,
@@ -216,23 +251,30 @@ class SettingsDialog(QDialog):
         opts_row.addStretch(1)
         layout.addLayout(opts_row)
 
-        layout.addWidget(QLabel("Tags & Templates (double-click a row to edit):"))
-        self.tag_table = QTableWidget(0, 4)
-        self.tag_table.setHorizontalHeaderLabels(["Tag", "Type", "Description", "Template"])
-        self.tag_table.setAlternatingRowColors(True)
-        self.tag_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tag_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.tag_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tag_table.verticalHeader().setVisible(False)
-        self.tag_table.setShowGrid(False)
-        self.tag_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        header = self.tag_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.tag_table.itemDoubleClicked.connect(lambda _item: self._edit_tag())
-        layout.addWidget(self.tag_table, 1)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs, 1)
+
+        # Tab 1: Main Tags & Complementary Tags
+        tags_tab = QWidget()
+        tags_layout = QVBoxLayout(tags_tab)
+        tags_layout.setContentsMargins(4, 4, 4, 4)
+        tags_layout.setSpacing(6)
+
+        main_hdr = QLabel("Main Tags")
+        main_hdr.setObjectName("sectionHeader")
+        tags_layout.addWidget(main_hdr)
+        self.main_list = QListWidget()
+        self.main_list.itemClicked.connect(lambda _i: self.comp_list.clearSelection())
+        self.main_list.itemDoubleClicked.connect(lambda _i: self._edit_tag())
+        tags_layout.addWidget(self.main_list, 1)
+
+        comp_hdr = QLabel("Complementary Tags")
+        comp_hdr.setObjectName("sectionHeader")
+        tags_layout.addWidget(comp_hdr)
+        self.comp_list = QListWidget()
+        self.comp_list.itemClicked.connect(lambda _i: self.main_list.clearSelection())
+        self.comp_list.itemDoubleClicked.connect(lambda _i: self._edit_tag())
+        tags_layout.addWidget(self.comp_list, 1)
 
         tag_btns = QHBoxLayout()
         new_btn = QPushButton("+ New Tag")
@@ -245,7 +287,23 @@ class SettingsDialog(QDialog):
         tag_btns.addWidget(edit_btn)
         tag_btns.addWidget(del_btn)
         tag_btns.addStretch(1)
-        layout.addLayout(tag_btns)
+        tags_layout.addLayout(tag_btns)
+        self.tabs.addTab(tags_tab, "Tags")
+
+        # Tab 2: Templates (Tag Name + Eye preview button)
+        tmpl_tab = QWidget()
+        tmpl_outer = QVBoxLayout(tmpl_tab)
+        tmpl_outer.setContentsMargins(4, 4, 4, 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.tmpl_container = QWidget()
+        self.tmpl_layout = QVBoxLayout(self.tmpl_container)
+        self.tmpl_layout.setContentsMargins(4, 4, 4, 4)
+        self.tmpl_layout.setSpacing(6)
+        scroll.setWidget(self.tmpl_container)
+        tmpl_outer.addWidget(scroll)
+        self.tabs.addTab(tmpl_tab, "Templates")
 
         actions = QHBoxLayout()
         actions.addStretch(1)
@@ -261,40 +319,50 @@ class SettingsDialog(QDialog):
         self._refresh_tag_list()
 
     def _refresh_tag_list(self) -> None:
-        self.tag_table.setRowCount(0)
+        self.main_list.clear()
+        self.comp_list.clear()
+        for tag in self.draft.tags:
+            item = QListWidgetItem(f"{tag.name} - {tag.description}")
+            item.setData(Qt.ItemDataRole.UserRole, tag.name)
+            if tag.kind == "main":
+                self.main_list.addItem(item)
+            else:
+                self.comp_list.addItem(item)
+
+        while self.tmpl_layout.count():
+            child = self.tmpl_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
         bold_font = QFont()
         bold_font.setBold(True)
+        for tag in self.draft.tags:
+            if not tag.template:
+                continue
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(6, 4, 6, 4)
+            lbl = QLabel(tag.name)
+            lbl.setFont(bold_font)
+            eye_btn = QPushButton("👁")
+            eye_btn.setToolTip(f"Preview <{tag.name}> template")
+            eye_btn.setFixedWidth(40)
+            eye_btn.clicked.connect(lambda _checked=False, t=tag: self._preview_template(t))
+            row.addWidget(lbl)
+            row.addStretch(1)
+            row.addWidget(eye_btn)
+            self.tmpl_layout.addWidget(row_widget)
+        self.tmpl_layout.addStretch(1)
 
-        for row_idx, tag in enumerate(self.draft.tags):
-            self.tag_table.insertRow(row_idx)
-            name_item = QTableWidgetItem(tag.name)
-            name_item.setFont(bold_font)
-            name_item.setData(Qt.ItemDataRole.UserRole, tag.name)
-
-            is_main = tag.kind == "main"
-            kind_item = QTableWidgetItem("Main" if is_main else "Comp")
-            kind_item.setForeground(QColor("#7eb2d6" if is_main else "#8fbcbb"))
-            kind_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            desc_item = QTableWidgetItem(tag.description)
-            desc_item.setToolTip(tag.description)
-
-            tmpl_text = ", ".join(tag.template) if tag.template else "-"
-            tmpl_item = QTableWidgetItem(tmpl_text)
-            tmpl_item.setForeground(QColor("#8b98ab"))
-            tmpl_item.setToolTip(tmpl_text)
-
-            self.tag_table.setItem(row_idx, 0, name_item)
-            self.tag_table.setItem(row_idx, 1, kind_item)
-            self.tag_table.setItem(row_idx, 2, desc_item)
-            self.tag_table.setItem(row_idx, 3, tmpl_item)
+    def _preview_template(self, tag: TagDef) -> None:
+        TemplatePreviewDialog(tag, self.draft, parent=self).exec()
 
     def _selected_tag_name(self) -> str | None:
-        row = self.tag_table.currentRow()
-        if row < 0:
-            return None
-        item = self.tag_table.item(row, 0)
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+        for lst in (self.main_list, self.comp_list):
+            item = lst.currentItem()
+            if item and item.isSelected():
+                return item.data(Qt.ItemDataRole.UserRole)
+        return None
 
     def _new_tag(self) -> None:
         dlg = TagEditorDialog(parent=self)

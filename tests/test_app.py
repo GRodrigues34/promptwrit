@@ -70,8 +70,9 @@ def test_settings_dialog_toggles_templates(tmp_path: Path) -> None:
     win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
 
     dlg = SettingsDialog(win.config, parent=win)
-    assert dlg.tag_table.columnCount() == 4
-    assert dlg.tag_table.rowCount() == len(win.config.tags)
+    assert dlg.main_list.count() == len(win.config.main_tags())
+    assert dlg.comp_list.count() == len(win.config.complementary_tags())
+    assert dlg.tabs.count() == 2
     assert dlg.chk_templates.isChecked() is True
     dlg.chk_templates.setChecked(False)
     dlg._save()

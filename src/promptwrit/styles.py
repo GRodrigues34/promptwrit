@@ -181,4 +181,37 @@ QHeaderView::section {
     padding: 6px 8px;
     font-weight: 600;
 }
+
+QTabWidget::pane {
+    border: 1px solid #2c3646;
+    border-radius: 7px;
+    background-color: #10151d;
+    padding: 8px;
+}
+
+QTabBar::tab {
+    background-color: #161c26;
+    color: #8b98ab;
+    border: 1px solid #2c3646;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 6px 16px;
+    margin-right: 4px;
+    font-weight: 600;
+}
+
+QTabBar::tab:selected {
+    background-color: #1e2736;
+    color: #eceff4;
+    border-color: #4c7899;
+}
+
+QLabel#sectionHeader {
+    color: #7eb2d6;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 2px;
+    background: transparent;
+}
 """.replace("__CHECK_SVG__", _CHECK_SVG)
