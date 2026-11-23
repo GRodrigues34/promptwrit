@@ -70,8 +70,35 @@ def test_settings_dialog_toggles_templates(tmp_path: Path) -> None:
     win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
 
     dlg = SettingsDialog(win.config, parent=win)
+    assert dlg.tag_table.columnCount() == 4
+    assert dlg.tag_table.rowCount() == len(win.config.tags)
     assert dlg.chk_templates.isChecked() is True
     dlg.chk_templates.setChecked(False)
     dlg._save()
     assert dlg.draft.templates_enabled is False
+    win.close()
+
+
+def test_ghost_hint_is_non_editable_and_restores_when_empty(tmp_path: Path) -> None:
+    _ensure_qapp()
+    cfg_file = tmp_path / "config.json"
+    win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
+    win.show()
+
+    QTest.keyClicks(win.editor, "<feat")
+    QTest.keyClick(win.editor, Qt.Key.Key_Tab)
+    assert "<OBJECTIVE>Exact outcome or goal expected</OBJECTIVE>" in win.editor.toPlainText()
+    assert win.editor.textCursor().hasSelection() is False
+
+    # Typing immediately clears the ghost hint and inserts user text.
+    QTest.keyClicks(win.editor, "Build X")
+    text = win.editor.toPlainText()
+    assert "<OBJECTIVE>Build X</OBJECTIVE>" in text
+    assert "Exact outcome or goal expected" not in text
+
+    # Deleting user text and moving to next tab-stop restores the ghost hint.
+    for _ in range(len("Build X")):
+        QTest.keyClick(win.editor, Qt.Key.Key_Backspace)
+    QTest.keyClick(win.editor, Qt.Key.Key_Tab)
+    assert "<OBJECTIVE>Exact outcome or goal expected</OBJECTIVE>" in win.editor.toPlainText()
     win.close()

@@ -1,5 +1,9 @@
 """Modern dark-slate Qt StyleSheet (QSS) for PromptWrit."""
 
+from pathlib import Path
+
+_CHECK_SVG = (Path(__file__).resolve().parent / "assets" / "check.svg").as_posix()
+
 DARK_SLATE_QSS = """
 QWidget {
     background-color: #0d1017;
@@ -145,15 +149,36 @@ QCheckBox {
 }
 
 QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
+    width: 17px;
+    height: 17px;
     border-radius: 4px;
     border: 1px solid #3b4759;
     background-color: #121720;
 }
 
 QCheckBox::indicator:checked {
-    background-color: #3b6ea5;
-    border: 1px solid #5e81ac;
+    background-color: #2e7d32;
+    border: 1px solid #4caf50;
+    image: url(__CHECK_SVG__);
 }
-"""
+
+QTableWidget {
+    background-color: #10151d;
+    alternate-background-color: #141a24;
+    border: 1px solid #2c3646;
+    border-radius: 7px;
+    gridline-color: #1d2532;
+    color: #d8dee9;
+    selection-background-color: #223b5e;
+    selection-color: #ffffff;
+}
+
+QHeaderView::section {
+    background-color: #161d28;
+    color: #8f9bb0;
+    border: none;
+    border-bottom: 1px solid #2c3646;
+    padding: 6px 8px;
+    font-weight: 600;
+}
+""".replace("__CHECK_SVG__", _CHECK_SVG)

@@ -86,6 +86,22 @@ class PromptEditor(QPlainTextEdit):
             self._window.close()
             return
 
+        # Non-editable ghost hint handling
+        ghost = self._window.ghost_hint_at_cursor()
+        if ghost is not None:
+            g_start, g_end, _hint = ghost
+            if key == Qt.Key.Key_Delete:
+                self._window.clear_ghost_hint(g_start, g_end)
+                return
+            if key == Qt.Key.Key_Right and not (mods & Qt.KeyboardModifier.ShiftModifier):
+                cur = self.textCursor()
+                cur.setPosition(g_end)
+                self.setTextCursor(cur)
+                return
+            if event.text() and not (mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)):
+                if key not in (Qt.Key.Key_Backspace, Qt.Key.Key_Escape):
+                    self._window.clear_ghost_hint(g_start, g_end)
+
         super().keyPressEvent(event)
 
 
@@ -153,6 +169,7 @@ class PromptWritWindow(QMainWindow):
             known_hints=self._known_hints(),
         )
         self.editor.textChanged.connect(self._on_editor_changed)
+        self.editor.cursorPositionChanged.connect(self._on_cursor_moved)
         prompt_layout.addWidget(self.editor)
         root_layout.addWidget(prompt_group, 1)
 
@@ -312,36 +329,94 @@ class PromptWritWindow(QMainWindow):
                 hint = stops[0].hint
                 idx = pluralized.find(hint, trigger.start_index)
                 if idx != -1:
-                    self._select_range(idx, idx + len(hint))
+                    self._set_cursor_pos(idx)
 
             self._refresh_tags_legend()
 
-    def _select_range(self, start: int, end: int) -> None:
+    def _set_cursor_pos(self, pos: int) -> None:
+        cursor = self.editor.textCursor()
+        cursor.setPosition(pos)
+        self.editor.setTextCursor(cursor)
+
+    def ghost_hint_at_cursor(self) -> tuple[int, int, str] | None:
+        """Return (start, end, hint) if cursor sits at/inside a canonical ghost hint."""
+        text = self.editor.toPlainText()
+        pos = self.editor.textCursor().position()
+        tag_map = self.config.tag_map()
+
+        for match in re.finditer(r"<([A-Za-z_][A-Za-z0-9_-]*)>([^<>]*)</\1>", text):
+            name = match.group(1).upper()
+            body = match.group(2)
+            tag_def = tag_map.get(name)
+            if tag_def and tag_def.description and body == tag_def.description:
+                g_start, g_end = match.start(2), match.end(2)
+                if g_start <= pos <= g_end:
+                    return g_start, g_end, body
+        return None
+
+    def clear_ghost_hint(self, start: int, end: int) -> None:
+        """Silently remove a ghost hint range and place cursor at start."""
+        self._suppress_change = True
         cursor = self.editor.textCursor()
         cursor.setPosition(start)
         cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
         self.editor.setTextCursor(cursor)
+        self._suppress_change = False
+
+    def _on_cursor_moved(self) -> None:
+        if self._suppress_change:
+            return
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            return
+
+        pos = cursor.position()
+        # 1. Prevent cursor from resting inside a ghost hint: snap to its start.
+        ghost = self.ghost_hint_at_cursor()
+        if ghost is not None and pos > ghost[0]:
+            self._suppress_change = True
+            self._set_cursor_pos(ghost[0])
+            self._suppress_change = False
+            return
+
+        # 2. Restore canonical ghost hint for any empty tag the cursor has left.
+        text = self.editor.toPlainText()
+        tag_map = self.config.tag_map()
+        for match in re.finditer(r"<([A-Za-z_][A-Za-z0-9_-]*)></\1>", text):
+            name = match.group(1).upper()
+            tag_def = tag_map.get(name)
+            if not tag_def or not tag_def.description:
+                continue
+            insert_at = match.end(1) + 1  # right after '>'
+            if pos != insert_at:
+                new_text = text[:insert_at] + tag_def.description + text[insert_at:]
+                offset = len(tag_def.description) if pos > insert_at else 0
+                self._suppress_change = True
+                self.editor.setPlainText(new_text)
+                self._set_cursor_pos(pos + offset)
+                self._suppress_change = False
+                break
 
     def jump_next_tab_stop(self) -> bool:
-        """Select the next canonical ghost hint after the cursor."""
+        """Jump cursor to the start of the next canonical ghost hint after the cursor."""
         text = self.editor.toPlainText()
         cursor = self.editor.textCursor()
-        search_from = max(cursor.position(), cursor.selectionEnd())
+        search_from = cursor.position() + 1
 
-        best_span: tuple[int, int] | None = None
+        best_pos: int | None = None
         for tag in self.config.tags:
             if not tag.description:
                 continue
             token = f">{tag.description}</"
             found = text.find(token, search_from)
             if found != -1:
-                start = found + 1
-                end = start + len(tag.description)
-                if best_span is None or start < best_span[0]:
-                    best_span = (start, end)
+                pos = found + 1
+                if best_pos is None or pos < best_pos:
+                    best_pos = pos
 
-        if best_span is not None:
-            self._select_range(best_span[0], best_span[1])
+        if best_pos is not None:
+            self._set_cursor_pos(best_pos)
             return True
         return False
 

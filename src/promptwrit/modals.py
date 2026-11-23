@@ -6,18 +6,21 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -213,9 +216,23 @@ class SettingsDialog(QDialog):
         opts_row.addStretch(1)
         layout.addLayout(opts_row)
 
-        layout.addWidget(QLabel("Tags & Templates:"))
-        self.tag_list = QListWidget()
-        layout.addWidget(self.tag_list, 1)
+        layout.addWidget(QLabel("Tags & Templates (double-click a row to edit):"))
+        self.tag_table = QTableWidget(0, 4)
+        self.tag_table.setHorizontalHeaderLabels(["Tag", "Type", "Description", "Template"])
+        self.tag_table.setAlternatingRowColors(True)
+        self.tag_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tag_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tag_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tag_table.verticalHeader().setVisible(False)
+        self.tag_table.setShowGrid(False)
+        self.tag_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        header = self.tag_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.tag_table.itemDoubleClicked.connect(lambda _item: self._edit_tag())
+        layout.addWidget(self.tag_table, 1)
 
         tag_btns = QHBoxLayout()
         new_btn = QPushButton("+ New Tag")
@@ -244,13 +261,40 @@ class SettingsDialog(QDialog):
         self._refresh_tag_list()
 
     def _refresh_tag_list(self) -> None:
-        self.tag_list.clear()
-        for tag in self.draft.tags:
-            badge = "MAIN" if tag.kind == "main" else "COMP"
-            tmpl = f" -> [{', '.join(tag.template)}]" if tag.template else ""
-            item = QListWidgetItem(f"[{badge}] {tag.name}: {tag.description}{tmpl}")
-            item.setData(Qt.ItemDataRole.UserRole, tag.name)
-            self.tag_list.addItem(item)
+        self.tag_table.setRowCount(0)
+        bold_font = QFont()
+        bold_font.setBold(True)
+
+        for row_idx, tag in enumerate(self.draft.tags):
+            self.tag_table.insertRow(row_idx)
+            name_item = QTableWidgetItem(tag.name)
+            name_item.setFont(bold_font)
+            name_item.setData(Qt.ItemDataRole.UserRole, tag.name)
+
+            is_main = tag.kind == "main"
+            kind_item = QTableWidgetItem("Main" if is_main else "Comp")
+            kind_item.setForeground(QColor("#7eb2d6" if is_main else "#8fbcbb"))
+            kind_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            desc_item = QTableWidgetItem(tag.description)
+            desc_item.setToolTip(tag.description)
+
+            tmpl_text = ", ".join(tag.template) if tag.template else "-"
+            tmpl_item = QTableWidgetItem(tmpl_text)
+            tmpl_item.setForeground(QColor("#8b98ab"))
+            tmpl_item.setToolTip(tmpl_text)
+
+            self.tag_table.setItem(row_idx, 0, name_item)
+            self.tag_table.setItem(row_idx, 1, kind_item)
+            self.tag_table.setItem(row_idx, 2, desc_item)
+            self.tag_table.setItem(row_idx, 3, tmpl_item)
+
+    def _selected_tag_name(self) -> str | None:
+        row = self.tag_table.currentRow()
+        if row < 0:
+            return None
+        item = self.tag_table.item(row, 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _new_tag(self) -> None:
         dlg = TagEditorDialog(parent=self)
@@ -260,10 +304,9 @@ class SettingsDialog(QDialog):
             self._refresh_tag_list()
 
     def _edit_tag(self) -> None:
-        item = self.tag_list.currentItem()
-        if not item:
+        name = self._selected_tag_name()
+        if not name:
             return
-        name = item.data(Qt.ItemDataRole.UserRole)
         existing = self.draft.tag_map().get(name)
         if not existing:
             return
@@ -275,10 +318,9 @@ class SettingsDialog(QDialog):
             self._refresh_tag_list()
 
     def _delete_tag(self) -> None:
-        item = self.tag_list.currentItem()
-        if not item:
+        name = self._selected_tag_name()
+        if not name:
             return
-        name = item.data(Qt.ItemDataRole.UserRole)
         self.draft.tags = [t for t in self.draft.tags if t.name != name]
         self._refresh_tag_list()
 
