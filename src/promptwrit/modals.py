@@ -154,17 +154,23 @@ class TagEditorDialog(QDialog):
         self.accept()
 
 
-class TemplatePreviewDialog(QDialog):
-    """Read-only modal showing the full expanded XML template for a tag."""
+class TemplateEditorDialog(QDialog):
+    """Modal to view and edit the expanded XML template for a tag."""
 
     def __init__(self, tag: TagDef, config: AppConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Template Preview: <{tag.name}>")
-        self.setMinimumSize(480, 280)
+        self.tag = tag
+        self.setWindowTitle(f"Edit Template: <{tag.name}>")
+        self.setMinimumSize(620, 340)
+        self.updated_template: list[str] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
+
+        layout.addWidget(
+            QLabel(f"Edit child tags inside <{tag.name}>...</{tag.name}> (one child tag per line):")
+        )
 
         temp_cfg = AppConfig(
             templates_enabled=True,
@@ -173,18 +179,43 @@ class TemplatePreviewDialog(QDialog):
         )
         preview_text, _ = expand_tag_snippet(tag, temp_cfg)
 
-        viewer = QPlainTextEdit(preview_text)
-        viewer.setReadOnly(True)
-        viewer.setObjectName("promptEditor")
-        layout.addWidget(viewer, 1)
+        self.editor = QPlainTextEdit(preview_text)
+        self.editor.setObjectName("promptEditor")
+        layout.addWidget(self.editor, 1)
 
         actions = QHBoxLayout()
         actions.addStretch(1)
-        close_btn = QPushButton("Close")
-        close_btn.setObjectName("primaryBtn")
-        close_btn.clicked.connect(self.accept)
-        actions.addWidget(close_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        save_btn = QPushButton("Save Template")
+        save_btn.setObjectName("primaryBtn")
+        save_btn.clicked.connect(self._save)
+        actions.addWidget(cancel_btn)
+        actions.addWidget(save_btn)
         layout.addLayout(actions)
+
+    def _save(self) -> None:
+        raw = self.editor.toPlainText().strip()
+        outer = re.match(
+            rf"^<{re.escape(self.tag.name)}>\s*(.*?)\s*</{re.escape(self.tag.name)}>$",
+            raw,
+            re.DOTALL | re.IGNORECASE,
+        )
+        body = outer.group(1) if outer else raw
+        children = [
+            m.group(1).upper()
+            for m in re.finditer(r"<\s*([A-Za-z_][A-Za-z0-9_-]*)\s*>", body)
+        ]
+        # Deduplicate while preserving order, excluding the wrapper tag itself.
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for child in children:
+            if child != self.tag.name and child not in seen:
+                seen.add(child)
+                cleaned.append(child)
+
+        self.updated_template = cleaned
+        self.accept()
 
 
 class SettingsDialog(QDialog):
@@ -355,7 +386,10 @@ class SettingsDialog(QDialog):
         self.tmpl_layout.addStretch(1)
 
     def _preview_template(self, tag: TagDef) -> None:
-        TemplatePreviewDialog(tag, self.draft, parent=self).exec()
+        dlg = TemplateEditorDialog(tag, self.draft, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.updated_template is not None:
+            tag.template = dlg.updated_template
+            self._refresh_tag_list()
 
     def _selected_tag_name(self) -> str | None:
         for lst in (self.main_list, self.comp_list):

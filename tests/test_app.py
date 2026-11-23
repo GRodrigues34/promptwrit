@@ -12,7 +12,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from promptwrit.app import PromptWritWindow
-from promptwrit.modals import SettingsDialog
+from promptwrit.modals import SettingsDialog, TemplateEditorDialog
 
 
 def _ensure_qapp() -> QApplication:
@@ -102,4 +102,17 @@ def test_ghost_hint_is_non_editable_and_restores_when_empty(tmp_path: Path) -> N
         QTest.keyClick(win.editor, Qt.Key.Key_Backspace)
     QTest.keyClick(win.editor, Qt.Key.Key_Tab)
     assert "<OBJECTIVE>Exact outcome or goal expected</OBJECTIVE>" in win.editor.toPlainText()
+    win.close()
+
+
+def test_template_editor_dialog_saves_updated_children(tmp_path: Path) -> None:
+    _ensure_qapp()
+    cfg_file = tmp_path / "config.json"
+    win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
+    feature = win.config.tag_map()["FEATURE"]
+
+    dlg = TemplateEditorDialog(feature, win.config, parent=win)
+    dlg.editor.setPlainText("<FEATURE>\n  <OBJECTIVE></OBJECTIVE>\n  <OUTPUT></OUTPUT>\n</FEATURE>")
+    dlg._save()
+    assert dlg.updated_template == ["OBJECTIVE", "OUTPUT"]
     win.close()
