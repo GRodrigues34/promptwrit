@@ -1,0 +1,174 @@
+Screen {
+    background: #0d1017;
+    color: #d8dee9;
+    layout: vertical;
+    padding: 1 2;
+}
+
+#header-bar {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+    margin-bottom: 1;
+}
+
+#app-title {
+    width: 1fr;
+    text-style: bold;
+    color: #eceff4;
+    content-align: left middle;
+}
+
+#workspace-btn {
+    width: auto;
+    min-width: 16;
+    height: 3;
+    background: #1b222d;
+    color: #d8dee9;
+    border: solid #2e3847;
+    margin-right: 1;
+}
+
+#workspace-btn:hover {
+    background: #252e3d;
+    border: solid #5e81ac;
+}
+
+#settings-btn {
+    width: 5;
+    min-width: 5;
+    height: 3;
+    background: #1b222d;
+    color: #d8dee9;
+    border: solid #2e3847;
+}
+
+#settings-btn:hover {
+    background: #252e3d;
+    border: solid #5e81ac;
+}
+
+#tags-panel {
+    height: auto;
+    max-height: 9;
+    min-height: 4;
+    background: #121720;
+    border: round #3b4656;
+    border-title-color: #9aa7b8;
+    padding: 0 1;
+    margin-bottom: 1;
+    overflow-y: auto;
+}
+
+#tags-content {
+    color: #8b98ab;
+    width: 100%;
+}
+
+#editor-container {
+    height: 1fr;
+    layout: vertical;
+}
+
+#prompt-editor {
+    height: 1fr;
+    background: #0f141c;
+    color: #e5e9f0;
+    border: round #4c7899;
+    border-title-color: #7eb2d6;
+    padding: 0 1;
+}
+
+#prompt-editor:focus {
+    border: round #6ba4cc;
+}
+
+#autocomplete-popup {
+    layer: overlay;
+    display: none;
+    width: 72;
+    max-width: 90%;
+    height: auto;
+    max-height: 10;
+    background: #171d28;
+    border: round #4c617d;
+    color: #e5e9f0;
+    margin-top: 1;
+    margin-left: 4;
+}
+
+#autocomplete-popup.visible {
+    display: block;
+}
+
+#autocomplete-popup > .option-list--option-highlighted {
+    background: #2b4c7e;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#footer-bar {
+    height: 1;
+    margin-top: 1;
+    color: #7c8798;
+    content-align: center middle;
+}
+
+/* Modal Styles */
+WorkspaceScreen, SettingsScreen, TagEditorScreen {
+    align: center middle;
+    background: rgba(10, 12, 18, 0.8);
+}
+
+.modal-box {
+    width: 74;
+    max-width: 92%;
+    height: auto;
+    max-height: 85%;
+    background: #141923;
+    border: round #4c617d;
+    padding: 1 2;
+}
+
+#settings-scroll {
+    height: 1fr;
+    max-height: 24;
+    overflow-y: auto;
+}
+
+.modal-title {
+    text-style: bold;
+    color: #eceff4;
+    margin-bottom: 1;
+}
+
+.setting-row {
+    height: auto;
+    min-height: 1;
+    layout: horizontal;
+    align: left middle;
+    margin-bottom: 1;
+}
+
+.setting-label {
+    width: 1fr;
+    color: #d8dee9;
+}
+
+.modal-actions {
+    height: 3;
+    layout: horizontal;
+    align: right middle;
+    margin-top: 1;
+}
+
+#settings-tag-list {
+    height: 5;
+    margin-bottom: 1;
+    border: solid #2e3847;
+    background: #0f141c;
+}
+
+.modal-actions Button {
+    margin-left: 1;
+}
