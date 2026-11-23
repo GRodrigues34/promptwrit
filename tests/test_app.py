@@ -1,77 +1,77 @@
-"""End-to-end Textual pilot tests for PromptWritApp."""
+"""Headless Qt tests for PromptWritWindow and dialogs."""
 
-import asyncio
+from __future__ import annotations
+
+import os
 from pathlib import Path
 
-from promptwrit.app import PromptTextArea, PromptWritApp, SettingsScreen
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+
+from promptwrit.app import PromptWritWindow
+from promptwrit.modals import SettingsDialog
 
 
-def test_app_tag_autocomplete_and_legend_sync(tmp_path: Path) -> None:
+def _ensure_qapp() -> QApplication:
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    return app
+
+
+def test_window_tag_autocomplete_and_legend_sync(tmp_path: Path) -> None:
+    _ensure_qapp()
     cfg_file = tmp_path / "config.json"
+    win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
+    win.show()
 
-    async def _run() -> None:
-        app = PromptWritApp(cli_cwd=str(tmp_path), config_file=cfg_file)
-        async with app.run_test(size=(100, 36)) as pilot:
-            await pilot.pause()
-            editor = app.query_one("#prompt-editor", PromptTextArea)
-            assert editor.has_focus
+    QTest.keyClicks(win.editor, "<feat")
+    assert win.is_autocomplete_visible()
 
-            await pilot.press("<", "f", "e", "a", "t")
-            await pilot.pause()
-            assert app.is_autocomplete_visible()
+    QTest.keyClick(win.editor, Qt.Key.Key_Tab)
+    assert not win.is_autocomplete_visible()
+    assert "<FEATURE>" in win.editor.toPlainText()
+    assert "<OBJECTIVE>" in win.editor.toPlainText()
 
-            await pilot.press("tab")
-            await pilot.pause()
-            assert not app.is_autocomplete_visible()
-            assert "<FEATURE>" in editor.text
-            assert "<OBJECTIVE>" in editor.text
-
-            tags_text = str(app.query_one("#tags-content").render())
-            assert "FEATURE:" in tags_text
-            assert "OBJECTIVE:" in tags_text
-            assert "FEATURES:" not in tags_text
-
-    asyncio.run(_run())
+    legend_text = win.tags_legend.toPlainText()
+    assert "FEATURE:" in legend_text
+    assert "OBJECTIVE:" in legend_text
+    assert "FEATURES:" not in legend_text
+    win.close()
 
 
-def test_app_file_autocomplete_inserts_relative_path(tmp_path: Path) -> None:
+def test_window_file_autocomplete_inserts_relative_path(tmp_path: Path) -> None:
+    _ensure_qapp()
     (tmp_path / "backend").mkdir()
     (tmp_path / "backend" / "architecture.md").write_text("# Arch", encoding="utf-8")
     cfg_file = tmp_path / "config.json"
 
-    async def _run() -> None:
-        app = PromptWritApp(cli_cwd=str(tmp_path), config_file=cfg_file)
-        async with app.run_test(size=(100, 36)) as pilot:
-            await pilot.pause()
-            editor = app.query_one("#prompt-editor", PromptTextArea)
-            editor.text = "<CONTEXT></CONTEXT>"
-            editor.cursor_location = (0, len("<CONTEXT>"))
-            await pilot.pause()
+    win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
+    win.show()
+    win.editor.setPlainText("<CONTEXT></CONTEXT>")
+    cursor = win.editor.textCursor()
+    cursor.setPosition(len("<CONTEXT>"))
+    win.editor.setTextCursor(cursor)
 
-            await pilot.press("#", "a", "r", "c", "h")
-            await pilot.pause()
-            assert app.is_autocomplete_visible()
+    QTest.keyClicks(win.editor, "#arch")
+    assert win.is_autocomplete_visible()
 
-            await pilot.press("tab")
-            await pilot.pause()
-            assert "backend/architecture.md" in editor.text
-
-    asyncio.run(_run())
+    QTest.keyClick(win.editor, Qt.Key.Key_Tab)
+    assert "backend/architecture.md" in win.editor.toPlainText()
+    win.close()
 
 
-def test_app_settings_modal_opens_and_toggles_templates(tmp_path: Path) -> None:
+def test_settings_dialog_toggles_templates(tmp_path: Path) -> None:
+    _ensure_qapp()
     cfg_file = tmp_path / "config.json"
+    win = PromptWritWindow(cli_cwd=str(tmp_path), config_file=cfg_file)
 
-    async def _run() -> None:
-        app = PromptWritApp(cli_cwd=str(tmp_path), config_file=cfg_file)
-        async with app.run_test(size=(100, 36)) as pilot:
-            await pilot.click("#settings-btn")
-            await pilot.pause()
-            assert isinstance(app.screen, SettingsScreen)
-
-            await pilot.click("#sw-templates")
-            await pilot.click("#set-save")
-            await pilot.pause()
-            assert app.config.templates_enabled is False
-
-    asyncio.run(_run())
+    dlg = SettingsDialog(win.config, parent=win)
+    assert dlg.chk_templates.isChecked() is True
+    dlg.chk_templates.setChecked(False)
+    dlg._save()
+    assert dlg.draft.templates_enabled is False
+    win.close()

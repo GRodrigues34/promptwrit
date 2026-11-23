@@ -1,9 +1,10 @@
 # PromptWrit
 
-Floating terminal TUI (built with Python `textual`) for composing structured, uppercase XML prompts for agentic CLIs and IDEs (`Claude Code`, `Gemini CLI`, `Cursor`, `Antigravity`).
+Standalone modern dark-mode desktop launcher (built with Python `PySide6`) for composing structured, uppercase XML prompts for agentic CLIs and IDEs (`Claude Code`, `Gemini CLI`, `Cursor`, `Antigravity`).
 
 ## Features
-- **Two-Pane Dark Slate UI:** Read-only `-- Tags:` live legend on top + editable `-- Prompt:` box below.
+- **Independent Desktop Window:** Clean dark-slate Qt6 UI with XML syntax highlighting, dimmed ghost placeholder hints, and a pixel-accurate floating autocomplete popup.
+- **Two-Pane Layout:** Read-only `-- Tags:` live legend on top + editable `-- Prompt:` code editor below.
 - **Two-Tier Tag Hierarchy:**
   - **Main tags** (`FEATURE`, `BUG`, `UPDATE`, `REFACTOR`, `TEST`, `REVIEW`, `PLAN`, `DEBUG`, `DOCS`, `PROMPT`) at root, with automatic pluralization when `2+` instances of the same Main tag are added (`<FEATURES>...</FEATURES>`).
   - **Complementary tags** (`OBJECTIVE`, `CONTEXT`, `EXAMPLE`, `CONSTRAINTS`, `EXPECTED`, `ACTUAL`, `VERIFICATION`, `OUTPUT`) allowed at root or nested inside any tag.
@@ -13,10 +14,10 @@ Floating terminal TUI (built with Python `textual`) for composing structured, up
 
 ## Run Locally
 ```bash
-.venv/bin/python -m promptwrit --cwd /path/to/your/repo
+PYTHONPATH=src .venv/bin/python -m promptwrit --cwd /path/to/your/repo
 ```
 
 ## Run Tests
 ```bash
-.venv/bin/pytest -v
+QT_QPA_PLATFORM=offscreen .venv/bin/pytest -v
 ```
