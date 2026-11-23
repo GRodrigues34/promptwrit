@@ -12,6 +12,15 @@ Standalone modern dark-mode desktop launcher (built with Python `PySide6`) for c
 - **Workspace-Scoped `#file` Autocomplete (`📁`):** Fuzzy-searches relative file paths inside the active git root / workspace (respecting `.gitignore`) and inserts path-only references.
 - **Clean Clipboard Copy (`Ctrl+Enter`):** Strips untouched placeholder hints and empty tags before copying.
 
+## Install on Linux (Executable + `Ctrl + '` Shortcut)
+Download the latest `promptwrit-linux-x86_64.tar.gz` from GitHub Releases (or clone this repo) and run:
+```bash
+./install.sh
+```
+This installs `promptwrit` to `~/.local/bin/promptwrit`, creates a `.desktop` launcher, and binds `Ctrl + '` on GNOME.
+
+*(On Ubuntu/Debian X11, ensure `libxcb-cursor0` is installed: `sudo apt install -y libxcb-cursor0`.)*
+
 ## Run Locally
 ```bash
 PYTHONPATH=src .venv/bin/python -m promptwrit --cwd /path/to/your/repo
